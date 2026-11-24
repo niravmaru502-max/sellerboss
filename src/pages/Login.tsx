@@ -1,11 +1,22 @@
 import React, { useState } from 'react';
-import { Lock, Mail, ShieldCheck, AlertCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
+import {
+  Lock,
+  Mail,
+  ShieldCheck,
+  AlertCircle,
+  CheckCircle2,
+  ArrowLeft,
+  Copy,
+  Check,
+  ExternalLink,
+} from 'lucide-react';
 import {
   BOOTSTRAPPED_ADMIN_EMAIL,
   sendResetPassword,
   signInWithEmail,
   signInWithGoogle,
 } from '../firebase/auth';
+import { firebaseProjectInfo } from '../firebase/firebase';
 import { useAuth } from '../context/AuthContext';
 
 export function Login() {
@@ -14,6 +25,8 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
   const [resetMode, setResetMode] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
@@ -45,13 +58,45 @@ export function Login() {
 
   const handleGoogleLogin = async () => {
     setError(null);
+    setUnauthorizedDomain(null);
     setSubmitting(true);
     try {
       await signInWithGoogle();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Google sign-in failed.');
+      const code =
+        typeof err === 'object' && err !== null && 'code' in err
+          ? String((err as { code?: string }).code)
+          : '';
+      const msg = err instanceof Error ? err.message : 'Google sign-in failed.';
+      if (code === 'auth/unauthorized-domain' || msg.includes('auth/unauthorized-domain')) {
+        const host = typeof window !== 'undefined' ? window.location.hostname : '';
+        setUnauthorizedDomain(host || 'your-current-domain');
+        setError(
+          `This domain (${host || 'current host'}) is not in Firebase Authentication Authorized Domains.`
+        );
+      } else if (code === 'auth/popup-blocked' || msg.includes('auth/popup-blocked')) {
+        setError('Sign-in popup was blocked by your browser. Allow popups for this site and try again.');
+      } else if (
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request'
+      ) {
+        setError('Sign-in popup was closed before completing authentication.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleCopyDomain = async () => {
+    if (!unauthorizedDomain) return;
+    try {
+      await navigator.clipboard.writeText(unauthorizedDomain);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2000);
+    } catch {
+      // Clipboard may be unavailable in restricted contexts
     }
   };
 
@@ -210,9 +255,53 @@ export function Login() {
               </p>
 
               {(error || authError) && (
-                <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{error || authError}</span>
+                <div className="mt-4 p-3.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 space-y-2.5">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span className="font-medium leading-relaxed">{error || authError}</span>
+                  </div>
+                  {unauthorizedDomain && (
+                    <div className="pl-6 space-y-2 text-red-800">
+                      <p className="leading-relaxed">
+                        Add this exact domain in{' '}
+                        <span className="font-semibold">
+                          Firebase Console → Authentication → Settings → Authorized domains
+                        </span>
+                        :
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 px-2.5 py-1.5 rounded bg-white border border-red-200 font-mono text-[11px] text-slate-800 truncate">
+                          {unauthorizedDomain}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyDomain()}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-white border border-red-200 hover:bg-red-100 text-[11px] font-medium text-red-800 shrink-0 transition-colors"
+                        >
+                          {copiedDomain ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              Copied
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" />
+                              Copy
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <a
+                        href={`https://console.firebase.google.com/project/${firebaseProjectInfo.projectId}/authentication/settings`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-blue-700 hover:text-blue-800 underline"
+                      >
+                        Open Firebase Authorized Domains ({firebaseProjectInfo.projectId})
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
 
