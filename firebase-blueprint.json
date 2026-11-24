@@ -1,0 +1,477 @@
+{
+  "entities": {
+    "Admin": {
+      "title": "Admin",
+      "description": "Authorized admin registry for Seller Dashboard.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Admin user profile containing private PII isolated to the owner.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "businessName": { "type": "string", "maxLength": 160 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "createdAt", "updatedAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Internal product master linked to Amazon ASIN and Flipkart FSN.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "sku": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "asin": { "type": "string", "maxLength": 40 },
+        "fsn": { "type": "string", "maxLength": 40 },
+        "category": { "type": "string", "maxLength": 100 },
+        "purchasePrice": { "type": "number" },
+        "mrp": { "type": "number" },
+        "amazonPrice": { "type": "number" },
+        "flipkartPrice": { "type": "number" },
+        "gstRate": { "type": "number" },
+        "openingStock": { "type": "number" },
+        "reorderLevel": { "type": "number" },
+        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name", "sku", "purchasePrice", "mrp", "amazonPrice", "flipkartPrice", "gstRate", "openingStock", "reorderLevel", "isDemo", "createdAt", "updatedAt"]
+    },
+    "MarketplaceListing": {
+      "title": "MarketplaceListing",
+      "description": "Links an internal product to a specific Amazon or Flipkart listing.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "sku": { "type": "string", "maxLength": 80 },
+        "marketplace": { "type": "string", "enum": ["Amazon", "Flipkart"] },
+        "externalId": { "type": "string", "maxLength": 80 },
+        "listingTitle": { "type": "string", "maxLength": 220 },
+        "sellingPrice": { "type": "number" },
+        "status": { "type": "string", "enum": ["Active", "Inactive", "Suppressed"] },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "productId", "sku", "marketplace", "externalId", "sellingPrice", "status", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Marketplace order record deduplicated by marketplace + orderId.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "marketplace": { "type": "string", "enum": ["Amazon", "Flipkart"] },
+        "orderDate": { "type": "string", "maxLength": 32 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "sku": { "type": "string", "maxLength": 80 },
+        "quantity": { "type": "number" },
+        "sellingPrice": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "orderStatus": { "type": "string", "enum": ["Pending", "Processing", "Shipped", "Delivered", "Cancelled", "Returned", "RTO"] },
+        "paymentStatus": { "type": "string", "enum": ["Pending", "Paid", "Settled", "Refunded", "COD"] },
+        "customerState": { "type": "string", "maxLength": 80 },
+        "marketplaceFee": { "type": "number" },
+        "shippingCharge": { "type": "number" },
+        "packagingCost": { "type": "number" },
+        "productCostSnapshot": { "type": "number" },
+        "gstAmount": { "type": "number" },
+        "tcsAmount": { "type": "number" },
+        "tdsAmount": { "type": "number" },
+        "settlementStatus": { "type": "string", "enum": ["Unreconciled", "Reconciled", "Mismatch"] },
+        "settledAmount": { "type": "number" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "orderId", "marketplace", "orderDate", "productName", "sku", "quantity", "sellingPrice", "totalAmount", "orderStatus", "paymentStatus", "isDemo", "createdAt", "updatedAt"]
+    },
+    "OrderItem": {
+      "title": "OrderItem",
+      "description": "Line item details for multi-item marketplace orders.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "orderDocId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "sku": { "type": "string", "maxLength": 80 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "quantity": { "type": "number" },
+        "unitPrice": { "type": "number" },
+        "lineTotal": { "type": "number" },
+        "purchaseCost": { "type": "number" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "orderDocId", "sku", "productName", "quantity", "unitPrice", "lineTotal", "isDemo", "createdAt"]
+    },
+    "Inventory": {
+      "title": "Inventory",
+      "description": "Location-separated stock balances per SKU.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "sku": { "type": "string", "maxLength": 80 },
+        "amazonStock": { "type": "number" },
+        "flipkartStock": { "type": "number" },
+        "warehouseStock": { "type": "number" },
+        "reservedStock": { "type": "number" },
+        "damagedStock": { "type": "number" },
+        "totalPhysicalStock": { "type": "number" },
+        "availableStock": { "type": "number" },
+        "reorderLevel": { "type": "number" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "productId", "productName", "sku", "amazonStock", "flipkartStock", "warehouseStock", "reservedStock", "damagedStock", "totalPhysicalStock", "availableStock", "reorderLevel", "isDemo", "createdAt", "updatedAt"]
+    },
+    "StockMovement": {
+      "title": "StockMovement",
+      "description": "Immutable audit trail of stock additions, deductions, and marketplace adjustments.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "sku": { "type": "string", "maxLength": 80 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "location": { "type": "string", "enum": ["Amazon", "Flipkart", "Warehouse", "Reserved", "Damaged"] },
+        "movementType": { "type": "string", "enum": ["Add", "Reduce", "Edit", "OrderImport", "ReturnRestock", "PurchaseImport"] },
+        "quantityDelta": { "type": "number" },
+        "referenceId": { "type": "string", "maxLength": 128 },
+        "notes": { "type": "string", "maxLength": 400 },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "productId", "sku", "productName", "location", "movementType", "quantityDelta", "isDemo", "createdAt"]
+    },
+    "ReturnRecord": {
+      "title": "ReturnRecord",
+      "description": "Tracks customer-initiated returns separately from Return to Origin (RTO) shipments.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "returnId": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "originalOrderId": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "marketplace": { "type": "string", "enum": ["Amazon", "Flipkart"] },
+        "returnType": { "type": "string", "enum": ["Customer Return", "RTO"] },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "sku": { "type": "string", "maxLength": 80 },
+        "quantity": { "type": "number" },
+        "returnDate": { "type": "string", "maxLength": 32 },
+        "returnReason": { "type": "string", "maxLength": 240 },
+        "returnStatus": { "type": "string", "enum": ["Requested", "In Transit", "Received", "Refunded", "Claim Raised", "Closed"] },
+        "refundAmount": { "type": "number" },
+        "returnLoss": { "type": "number" },
+        "productCondition": { "type": "string", "enum": ["Sellable", "Damaged", "Missing Parts", "Unopened", "Pending Inspection"] },
+        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "returnId", "originalOrderId", "marketplace", "returnType", "productName", "sku", "quantity", "returnDate", "returnReason", "returnStatus", "refundAmount", "productCondition", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Business and marketplace expenses with category and attachment metadata.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "expenseDate": { "type": "string", "maxLength": 32 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "category": { "type": "string", "enum": ["Product Purchase", "Packaging", "Shipping", "Advertising", "Labour", "Software", "Other Expenses"] },
+        "amount": { "type": "number" },
+        "marketplace": { "type": "string", "enum": ["Amazon", "Flipkart", "General"] },
+        "paymentMethod": { "type": "string", "maxLength": 60 },
+        "notes": { "type": "string", "maxLength": 500 },
+        "invoiceUrl": { "type": "string", "maxLength": 1000 },
+        "invoiceName": { "type": "string", "maxLength": 200 },
+        "isInventoryPurchase": { "type": "boolean" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "expenseDate", "name", "category", "amount", "marketplace", "paymentMethod", "isInventoryPurchase", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Settlement": {
+      "title": "Settlement",
+      "description": "Marketplace settlement payout summary for reconciliation.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "settlementId": { "type": "string", "maxLength": 80 },
+        "marketplace": { "type": "string", "enum": ["Amazon", "Flipkart"] },
+        "periodStart": { "type": "string", "maxLength": 32 },
+        "periodEnd": { "type": "string", "maxLength": 32 },
+        "grossSales": { "type": "number" },
+        "marketplaceFees": { "type": "number" },
+        "shippingFees": { "type": "number" },
+        "refunds": { "type": "number" },
+        "tcs": { "type": "number" },
+        "tds": { "type": "number" },
+        "netPayout": { "type": "number" },
+        "status": { "type": "string", "enum": ["Pending", "Reconciled", "Mismatch"] },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "settlementId", "marketplace", "periodStart", "periodEnd", "grossSales", "netPayout", "status", "isDemo", "createdAt", "updatedAt"]
+    },
+    "FeeTransaction": {
+      "title": "FeeTransaction",
+      "description": "Itemized marketplace fee deduction per order.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "orderDocId": { "type": "string", "maxLength": 128 },
+        "marketplace": { "type": "string", "enum": ["Amazon", "Flipkart"] },
+        "feeType": { "type": "string", "maxLength": 80 },
+        "amount": { "type": "number" },
+        "gstOnFee": { "type": "number" },
+        "transactionDate": { "type": "string", "maxLength": 32 },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "orderDocId", "marketplace", "feeType", "amount", "transactionDate", "isDemo", "createdAt"]
+    },
+    "CostComponent": {
+      "title": "CostComponent",
+      "description": "Per-SKU cost assumptions for profit modeling.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "sku": { "type": "string", "maxLength": 80 },
+        "purchaseCost": { "type": "number" },
+        "packagingCost": { "type": "number" },
+        "defaultAmazonFeePct": { "type": "number" },
+        "defaultFlipkartFeePct": { "type": "number" },
+        "defaultShippingCost": { "type": "number" },
+        "effectiveFrom": { "type": "string", "maxLength": 32 },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "productId", "sku", "purchaseCost", "packagingCost", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app operational alerts for stock, orders, returns, RTO, and sync status.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["Low Stock", "Out of Stock", "New Order", "Return Request", "RTO Order", "Failed Sync", "Marketplace Disconnected", "Settlement Mismatch"] },
+        "severity": { "type": "string", "enum": ["info", "warning", "error"] },
+        "title": { "type": "string", "maxLength": 160 },
+        "message": { "type": "string", "maxLength": 400 },
+        "read": { "type": "boolean" },
+        "relatedId": { "type": "string", "maxLength": 128 },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "type", "severity", "title", "message", "read", "isDemo", "createdAt"]
+    },
+    "Integration": {
+      "title": "Integration",
+      "description": "Marketplace API connection status and schedule configuration (no secrets).",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "marketplace": { "type": "string", "enum": ["Amazon", "Flipkart"] },
+        "status": { "type": "string", "enum": ["Connected", "Disconnected", "Authentication Required", "Sync Failed"] },
+        "sellerId": { "type": "string", "maxLength": 100 },
+        "lastSuccessfulSync": { "type": "string", "maxLength": 64 },
+        "nextScheduledSync": { "type": "string", "maxLength": 64 },
+        "pendingJobs": { "type": "number" },
+        "failedJobs": { "type": "number" },
+        "syncIntervalMinutes": { "type": "number" },
+        "autoSyncEnabled": { "type": "boolean" },
+        "lastError": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "marketplace", "status", "pendingJobs", "failedJobs", "syncIntervalMinutes", "autoSyncEnabled", "createdAt", "updatedAt"]
+    },
+    "SyncJob": {
+      "title": "SyncJob",
+      "description": "Tracks scheduled or manual marketplace sync jobs.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "marketplace": { "type": "string", "enum": ["Amazon", "Flipkart"] },
+        "jobType": { "type": "string", "enum": ["Orders", "Inventory", "Returns", "Settlements", "Listings", "CSVImport"] },
+        "status": { "type": "string", "enum": ["Pending", "Running", "Completed", "Failed"] },
+        "recordsProcessed": { "type": "number" },
+        "recordsSkipped": { "type": "number" },
+        "errorMessage": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "marketplace", "jobType", "status", "recordsProcessed", "recordsSkipped", "createdAt"]
+    },
+    "SyncLog": {
+      "title": "SyncLog",
+      "description": "Audit log entries from sync jobs and CSV imports.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "marketplace": { "type": "string", "enum": ["Amazon", "Flipkart", "System"] },
+        "level": { "type": "string", "enum": ["info", "warning", "error"] },
+        "message": { "type": "string", "maxLength": 300 },
+        "details": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "marketplace", "level", "message", "createdAt"]
+    },
+    "MonthlySummary": {
+      "title": "MonthlySummary",
+      "description": "Cached monthly performance rollups by marketplace.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "yearMonth": { "type": "string", "maxLength": 10 },
+        "marketplace": { "type": "string", "enum": ["Amazon", "Flipkart", "Combined"] },
+        "totalOrders": { "type": "number" },
+        "totalSales": { "type": "number" },
+        "deliveredOrders": { "type": "number" },
+        "pendingOrders": { "type": "number" },
+        "cancelledOrders": { "type": "number" },
+        "totalReturns": { "type": "number" },
+        "rtoOrders": { "type": "number" },
+        "totalUnitsSold": { "type": "number" },
+        "totalProductCost": { "type": "number" },
+        "marketplaceFees": { "type": "number" },
+        "shippingCharges": { "type": "number" },
+        "advertisingCost": { "type": "number" },
+        "otherExpenses": { "type": "number" },
+        "estimatedProfit": { "type": "number" },
+        "reconciledProfit": { "type": "number" },
+        "isDemo": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "yearMonth", "marketplace", "totalOrders", "totalSales", "estimatedProfit", "reconciledProfit", "isDemo", "updatedAt"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Seller workspace configuration and profit engine defaults.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "businessName": { "type": "string", "maxLength": 160 },
+        "businessLogoUrl": { "type": "string", "maxLength": 1000 },
+        "adminName": { "type": "string", "maxLength": 120 },
+        "adminEmail": { "type": "string", "maxLength": 254 },
+        "currency": { "type": "string", "maxLength": 10 },
+        "dateFormat": { "type": "string", "maxLength": 30 },
+        "defaultDashboardView": { "type": "string", "enum": ["Combined", "Amazon", "Flipkart"] },
+        "inventorySafetyBuffer": { "type": "number" },
+        "defaultAmazonFeePct": { "type": "number" },
+        "defaultFlipkartFeePct": { "type": "number" },
+        "defaultPackagingCost": { "type": "number" },
+        "defaultShippingCost": { "type": "number" },
+        "defaultReturnLossRate": { "type": "number" },
+        "gstRateDefault": { "type": "number" },
+        "tcsRateDefault": { "type": "number" },
+        "tdsRateDefault": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "businessName", "currency", "dateFormat", "defaultDashboardView", "inventorySafetyBuffer", "defaultAmazonFeePct", "defaultFlipkartFeePct", "defaultPackagingCost", "defaultShippingCost", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/Admin" },
+      "description": "Authorized admin UID registry."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private admin user profile document."
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Internal SKU catalog linked to ASIN and FSN."
+    },
+    "/marketplaceListings/{listingId}": {
+      "schema": { "$ref": "#/entities/MarketplaceListing" },
+      "description": "Amazon and Flipkart listing links."
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Marketplace orders deduplicated by marketplace + orderId."
+    },
+    "/orderItems/{itemId}": {
+      "schema": { "$ref": "#/entities/OrderItem" },
+      "description": "Order line items."
+    },
+    "/inventory/{inventoryId}": {
+      "schema": { "$ref": "#/entities/Inventory" },
+      "description": "Inventory balances split by Amazon, Flipkart, Warehouse, Reserved, and Damaged stock."
+    },
+    "/stockMovements/{movementId}": {
+      "schema": { "$ref": "#/entities/StockMovement" },
+      "description": "Audit log of stock movements."
+    },
+    "/returns/{returnId}": {
+      "schema": { "$ref": "#/entities/ReturnRecord" },
+      "description": "Customer returns and RTO shipment records."
+    },
+    "/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/Expense" },
+      "description": "Operational and purchase expenses."
+    },
+    "/settlements/{settlementId}": {
+      "schema": { "$ref": "#/entities/Settlement" },
+      "description": "Marketplace settlement payout records."
+    },
+    "/feeTransactions/{feeId}": {
+      "schema": { "$ref": "#/entities/FeeTransaction" },
+      "description": "Order-level marketplace fee records."
+    },
+    "/costComponents/{costId}": {
+      "schema": { "$ref": "#/entities/CostComponent" },
+      "description": "SKU cost assumptions."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "In-app operational alerts."
+    },
+    "/integrations/{integrationId}": {
+      "schema": { "$ref": "#/entities/Integration" },
+      "description": "Amazon and Flipkart integration status metadata."
+    },
+    "/syncJobs/{jobId}": {
+      "schema": { "$ref": "#/entities/SyncJob" },
+      "description": "Sync execution jobs."
+    },
+    "/syncLogs/{logId}": {
+      "schema": { "$ref": "#/entities/SyncLog" },
+      "description": "Sync and import audit logs."
+    },
+    "/monthlySummaries/{summaryId}": {
+      "schema": { "$ref": "#/entities/MonthlySummary" },
+      "description": "Aggregated monthly report snapshots."
+    },
+    "/appSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/AppSettings" },
+      "description": "Workspace preferences and profit settings."
+    }
+  }
+}

@@ -1,0 +1,886 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() &&
+        request.auth.token.email is string &&
+        request.auth.token.email.lower() == 'niravmaru502@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isStr(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isOptStr(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isNum(val) {
+      return val is int || val is float;
+    }
+
+    function isOptNum(data, key) {
+      return !(key in data) || isNum(data[key]);
+    }
+
+    function isMarketplace(val) {
+      return val == 'Amazon' || val == 'Flipkart';
+    }
+
+    function isOwnerResource() {
+      return isVerifiedUser() && existing().ownerId == request.auth.uid;
+    }
+
+    function isOwnerOrNotFound() {
+      return isVerifiedUser() && (resource == null || existing().ownerId == request.auth.uid);
+    }
+
+    function isImmutableOwnerAndCreated() {
+      return incoming().ownerId == existing().ownerId &&
+             incoming().createdAt == existing().createdAt;
+    }
+
+    // 3. Entity Validation Blueprints
+
+    function isValidAdmin(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'createdAt']) &&
+        isStr(data.uid, 1, 128) &&
+        data.uid == request.auth.uid &&
+        isStr(data.email, 3, 254) &&
+        data.email.lower() == request.auth.token.email.lower() &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'businessName', 'createdAt', 'updatedAt']) &&
+        isStr(data.uid, 1, 128) &&
+        data.uid == request.auth.uid &&
+        isStr(data.email, 3, 254) &&
+        isStr(data.displayName, 1, 120) &&
+        isOptStr(data, 'businessName', 160) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll([
+          'ownerId', 'name', 'sku', 'purchasePrice', 'mrp',
+          'amazonPrice', 'flipkartPrice', 'gstRate', 'openingStock',
+          'reorderLevel', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'name', 'sku', 'asin', 'fsn', 'category',
+          'purchasePrice', 'mrp', 'amazonPrice', 'flipkartPrice',
+          'gstRate', 'openingStock', 'reorderLevel', 'imageUrl',
+          'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isStr(data.name, 1, 200) &&
+        isStr(data.sku, 1, 80) &&
+        isOptStr(data, 'asin', 40) &&
+        isOptStr(data, 'fsn', 40) &&
+        isOptStr(data, 'category', 100) &&
+        isNum(data.purchasePrice) && data.purchasePrice >= 0 &&
+        isNum(data.mrp) && data.mrp >= 0 &&
+        isNum(data.amazonPrice) && data.amazonPrice >= 0 &&
+        isNum(data.flipkartPrice) && data.flipkartPrice >= 0 &&
+        isNum(data.gstRate) && data.gstRate >= 0 && data.gstRate <= 100 &&
+        isNum(data.openingStock) && data.openingStock >= 0 &&
+        isNum(data.reorderLevel) && data.reorderLevel >= 0 &&
+        isOptStr(data, 'imageUrl', 1000) &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMarketplaceListing(data) {
+      return data.keys().hasAll([
+          'ownerId', 'productId', 'sku', 'marketplace', 'externalId',
+          'sellingPrice', 'status', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'productId', 'sku', 'marketplace', 'externalId',
+          'listingTitle', 'sellingPrice', 'status', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.productId) &&
+        isStr(data.sku, 1, 80) &&
+        isMarketplace(data.marketplace) &&
+        isStr(data.externalId, 1, 80) &&
+        isOptStr(data, 'listingTitle', 220) &&
+        isNum(data.sellingPrice) && data.sellingPrice >= 0 &&
+        data.status in ['Active', 'Inactive', 'Suppressed'] &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll([
+          'ownerId', 'orderId', 'marketplace', 'orderDate', 'productName',
+          'sku', 'quantity', 'sellingPrice', 'totalAmount', 'orderStatus',
+          'paymentStatus', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'orderId', 'marketplace', 'orderDate', 'productId',
+          'productName', 'sku', 'quantity', 'sellingPrice', 'totalAmount',
+          'orderStatus', 'paymentStatus', 'customerState', 'marketplaceFee',
+          'shippingCharge', 'packagingCost', 'productCostSnapshot',
+          'gstAmount', 'tcsAmount', 'tdsAmount', 'settlementStatus',
+          'settledAmount', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isStr(data.orderId, 1, 80) &&
+        isMarketplace(data.marketplace) &&
+        isStr(data.orderDate, 8, 32) &&
+        isOptStr(data, 'productId', 128) &&
+        isStr(data.productName, 1, 200) &&
+        isStr(data.sku, 1, 80) &&
+        isNum(data.quantity) && data.quantity > 0 &&
+        isNum(data.sellingPrice) && data.sellingPrice >= 0 &&
+        isNum(data.totalAmount) && data.totalAmount >= 0 &&
+        data.orderStatus in ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Returned', 'RTO'] &&
+        data.paymentStatus in ['Pending', 'Paid', 'Settled', 'Refunded', 'COD'] &&
+        isOptStr(data, 'customerState', 80) &&
+        isOptNum(data, 'marketplaceFee') &&
+        isOptNum(data, 'shippingCharge') &&
+        isOptNum(data, 'packagingCost') &&
+        isOptNum(data, 'productCostSnapshot') &&
+        isOptNum(data, 'gstAmount') &&
+        isOptNum(data, 'tcsAmount') &&
+        isOptNum(data, 'tdsAmount') &&
+        (!('settlementStatus' in data) || data.settlementStatus in ['Unreconciled', 'Reconciled', 'Mismatch']) &&
+        isOptNum(data, 'settledAmount') &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidOrderItem(data) {
+      return data.keys().hasAll([
+          'ownerId', 'orderDocId', 'sku', 'productName',
+          'quantity', 'unitPrice', 'lineTotal', 'isDemo', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'orderDocId', 'productId', 'sku', 'productName',
+          'quantity', 'unitPrice', 'lineTotal', 'purchaseCost', 'isDemo', 'createdAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.orderDocId) &&
+        isOptStr(data, 'productId', 128) &&
+        isStr(data.sku, 1, 80) &&
+        isStr(data.productName, 1, 200) &&
+        isNum(data.quantity) && data.quantity > 0 &&
+        isNum(data.unitPrice) && data.unitPrice >= 0 &&
+        isNum(data.lineTotal) && data.lineTotal >= 0 &&
+        isOptNum(data, 'purchaseCost') &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidInventory(data) {
+      return data.keys().hasAll([
+          'ownerId', 'productId', 'productName', 'sku', 'amazonStock',
+          'flipkartStock', 'warehouseStock', 'reservedStock', 'damagedStock',
+          'totalPhysicalStock', 'availableStock', 'reorderLevel',
+          'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'productId', 'productName', 'sku', 'amazonStock',
+          'flipkartStock', 'warehouseStock', 'reservedStock', 'damagedStock',
+          'totalPhysicalStock', 'availableStock', 'reorderLevel',
+          'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.productId) &&
+        isStr(data.productName, 1, 200) &&
+        isStr(data.sku, 1, 80) &&
+        isNum(data.amazonStock) && data.amazonStock >= 0 &&
+        isNum(data.flipkartStock) && data.flipkartStock >= 0 &&
+        isNum(data.warehouseStock) && data.warehouseStock >= 0 &&
+        isNum(data.reservedStock) && data.reservedStock >= 0 &&
+        isNum(data.damagedStock) && data.damagedStock >= 0 &&
+        isNum(data.totalPhysicalStock) && data.totalPhysicalStock >= 0 &&
+        isNum(data.availableStock) && data.availableStock >= 0 &&
+        isNum(data.reorderLevel) && data.reorderLevel >= 0 &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidStockMovement(data) {
+      return data.keys().hasAll([
+          'ownerId', 'productId', 'sku', 'productName', 'location',
+          'movementType', 'quantityDelta', 'isDemo', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'productId', 'sku', 'productName', 'location',
+          'movementType', 'quantityDelta', 'referenceId', 'notes', 'isDemo', 'createdAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.productId) &&
+        isStr(data.sku, 1, 80) &&
+        isStr(data.productName, 1, 200) &&
+        data.location in ['Amazon', 'Flipkart', 'Warehouse', 'Reserved', 'Damaged'] &&
+        data.movementType in ['Add', 'Reduce', 'Edit', 'OrderImport', 'ReturnRestock', 'PurchaseImport'] &&
+        isNum(data.quantityDelta) &&
+        isOptStr(data, 'referenceId', 128) &&
+        isOptStr(data, 'notes', 400) &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidReturnRecord(data) {
+      return data.keys().hasAll([
+          'ownerId', 'returnId', 'originalOrderId', 'marketplace', 'returnType',
+          'productName', 'sku', 'quantity', 'returnDate', 'returnReason',
+          'returnStatus', 'refundAmount', 'productCondition', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'returnId', 'originalOrderId', 'marketplace', 'returnType',
+          'productId', 'productName', 'sku', 'quantity', 'returnDate', 'returnReason',
+          'returnStatus', 'refundAmount', 'returnLoss', 'productCondition',
+          'imageUrl', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isStr(data.returnId, 1, 80) &&
+        isStr(data.originalOrderId, 1, 80) &&
+        isMarketplace(data.marketplace) &&
+        data.returnType in ['Customer Return', 'RTO'] &&
+        isOptStr(data, 'productId', 128) &&
+        isStr(data.productName, 1, 200) &&
+        isStr(data.sku, 1, 80) &&
+        isNum(data.quantity) && data.quantity > 0 &&
+        isStr(data.returnDate, 8, 32) &&
+        isStr(data.returnReason, 1, 240) &&
+        data.returnStatus in ['Requested', 'In Transit', 'Received', 'Refunded', 'Claim Raised', 'Closed'] &&
+        isNum(data.refundAmount) && data.refundAmount >= 0 &&
+        isOptNum(data, 'returnLoss') &&
+        data.productCondition in ['Sellable', 'Damaged', 'Missing Parts', 'Unopened', 'Pending Inspection'] &&
+        isOptStr(data, 'imageUrl', 1000) &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidExpense(data) {
+      return data.keys().hasAll([
+          'ownerId', 'expenseDate', 'name', 'category', 'amount',
+          'marketplace', 'paymentMethod', 'isInventoryPurchase', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'expenseDate', 'name', 'category', 'amount',
+          'marketplace', 'paymentMethod', 'notes', 'invoiceUrl', 'invoiceName',
+          'isInventoryPurchase', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isStr(data.expenseDate, 8, 32) &&
+        isStr(data.name, 1, 200) &&
+        data.category in ['Product Purchase', 'Packaging', 'Shipping', 'Advertising', 'Labour', 'Software', 'Other Expenses'] &&
+        isNum(data.amount) && data.amount >= 0 &&
+        data.marketplace in ['Amazon', 'Flipkart', 'General'] &&
+        isStr(data.paymentMethod, 1, 60) &&
+        isOptStr(data, 'notes', 500) &&
+        isOptStr(data, 'invoiceUrl', 1000) &&
+        isOptStr(data, 'invoiceName', 200) &&
+        data.isInventoryPurchase is bool &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSettlement(data) {
+      return data.keys().hasAll([
+          'ownerId', 'settlementId', 'marketplace', 'periodStart', 'periodEnd',
+          'grossSales', 'netPayout', 'status', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'settlementId', 'marketplace', 'periodStart', 'periodEnd',
+          'grossSales', 'marketplaceFees', 'shippingFees', 'refunds',
+          'tcs', 'tds', 'netPayout', 'status', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isStr(data.settlementId, 1, 80) &&
+        isMarketplace(data.marketplace) &&
+        isStr(data.periodStart, 8, 32) &&
+        isStr(data.periodEnd, 8, 32) &&
+        isNum(data.grossSales) &&
+        isOptNum(data, 'marketplaceFees') &&
+        isOptNum(data, 'shippingFees') &&
+        isOptNum(data, 'refunds') &&
+        isOptNum(data, 'tcs') &&
+        isOptNum(data, 'tds') &&
+        isNum(data.netPayout) &&
+        data.status in ['Pending', 'Reconciled', 'Mismatch'] &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidFeeTransaction(data) {
+      return data.keys().hasAll([
+          'ownerId', 'orderDocId', 'marketplace', 'feeType', 'amount', 'transactionDate', 'isDemo', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'orderDocId', 'marketplace', 'feeType', 'amount', 'gstOnFee', 'transactionDate', 'isDemo', 'createdAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.orderDocId) &&
+        isMarketplace(data.marketplace) &&
+        isStr(data.feeType, 1, 80) &&
+        isNum(data.amount) &&
+        isOptNum(data, 'gstOnFee') &&
+        isStr(data.transactionDate, 8, 32) &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidCostComponent(data) {
+      return data.keys().hasAll([
+          'ownerId', 'productId', 'sku', 'purchaseCost', 'packagingCost', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'productId', 'sku', 'purchaseCost', 'packagingCost',
+          'defaultAmazonFeePct', 'defaultFlipkartFeePct', 'defaultShippingCost',
+          'effectiveFrom', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.productId) &&
+        isStr(data.sku, 1, 80) &&
+        isNum(data.purchaseCost) && data.purchaseCost >= 0 &&
+        isNum(data.packagingCost) && data.packagingCost >= 0 &&
+        isOptNum(data, 'defaultAmazonFeePct') &&
+        isOptNum(data, 'defaultFlipkartFeePct') &&
+        isOptNum(data, 'defaultShippingCost') &&
+        isOptStr(data, 'effectiveFrom', 32) &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll([
+          'ownerId', 'type', 'severity', 'title', 'message', 'read', 'isDemo', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'type', 'severity', 'title', 'message', 'read', 'relatedId', 'isDemo', 'createdAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        data.type in ['Low Stock', 'Out of Stock', 'New Order', 'Return Request', 'RTO Order', 'Failed Sync', 'Marketplace Disconnected', 'Settlement Mismatch'] &&
+        data.severity in ['info', 'warning', 'error'] &&
+        isStr(data.title, 1, 160) &&
+        isStr(data.message, 1, 400) &&
+        data.read is bool &&
+        isOptStr(data, 'relatedId', 128) &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidIntegration(data) {
+      return data.keys().hasAll([
+          'ownerId', 'marketplace', 'status', 'pendingJobs', 'failedJobs',
+          'syncIntervalMinutes', 'autoSyncEnabled', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'marketplace', 'status', 'sellerId', 'lastSuccessfulSync',
+          'nextScheduledSync', 'pendingJobs', 'failedJobs', 'syncIntervalMinutes',
+          'autoSyncEnabled', 'lastError', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isMarketplace(data.marketplace) &&
+        data.status in ['Connected', 'Disconnected', 'Authentication Required', 'Sync Failed'] &&
+        isOptStr(data, 'sellerId', 100) &&
+        isOptStr(data, 'lastSuccessfulSync', 64) &&
+        isOptStr(data, 'nextScheduledSync', 64) &&
+        isNum(data.pendingJobs) && data.pendingJobs >= 0 &&
+        isNum(data.failedJobs) && data.failedJobs >= 0 &&
+        isNum(data.syncIntervalMinutes) && data.syncIntervalMinutes >= 5 &&
+        data.autoSyncEnabled is bool &&
+        isOptStr(data, 'lastError', 400) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSyncJob(data) {
+      return data.keys().hasAll([
+          'ownerId', 'marketplace', 'jobType', 'status', 'recordsProcessed', 'recordsSkipped', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'marketplace', 'jobType', 'status', 'recordsProcessed', 'recordsSkipped', 'errorMessage', 'createdAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isMarketplace(data.marketplace) &&
+        data.jobType in ['Orders', 'Inventory', 'Returns', 'Settlements', 'Listings', 'CSVImport'] &&
+        data.status in ['Pending', 'Running', 'Completed', 'Failed'] &&
+        isNum(data.recordsProcessed) && data.recordsProcessed >= 0 &&
+        isNum(data.recordsSkipped) && data.recordsSkipped >= 0 &&
+        isOptStr(data, 'errorMessage', 400) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidSyncLog(data) {
+      return data.keys().hasAll(['ownerId', 'marketplace', 'level', 'message', 'createdAt']) &&
+        data.keys().hasOnly(['ownerId', 'marketplace', 'level', 'message', 'details', 'createdAt']) &&
+        data.ownerId == request.auth.uid &&
+        data.marketplace in ['Amazon', 'Flipkart', 'System'] &&
+        data.level in ['info', 'warning', 'error'] &&
+        isStr(data.message, 1, 300) &&
+        isOptStr(data, 'details', 600) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidMonthlySummary(data) {
+      return data.keys().hasAll([
+          'ownerId', 'yearMonth', 'marketplace', 'totalOrders', 'totalSales',
+          'estimatedProfit', 'reconciledProfit', 'isDemo', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'yearMonth', 'marketplace', 'totalOrders', 'totalSales',
+          'deliveredOrders', 'pendingOrders', 'cancelledOrders', 'totalReturns',
+          'rtoOrders', 'totalUnitsSold', 'totalProductCost', 'marketplaceFees',
+          'shippingCharges', 'advertisingCost', 'otherExpenses',
+          'estimatedProfit', 'reconciledProfit', 'isDemo', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isStr(data.yearMonth, 7, 10) &&
+        data.marketplace in ['Amazon', 'Flipkart', 'Combined'] &&
+        isNum(data.totalOrders) &&
+        isNum(data.totalSales) &&
+        isOptNum(data, 'deliveredOrders') &&
+        isOptNum(data, 'pendingOrders') &&
+        isOptNum(data, 'cancelledOrders') &&
+        isOptNum(data, 'totalReturns') &&
+        isOptNum(data, 'rtoOrders') &&
+        isOptNum(data, 'totalUnitsSold') &&
+        isOptNum(data, 'totalProductCost') &&
+        isOptNum(data, 'marketplaceFees') &&
+        isOptNum(data, 'shippingCharges') &&
+        isOptNum(data, 'advertisingCost') &&
+        isOptNum(data, 'otherExpenses') &&
+        isNum(data.estimatedProfit) &&
+        isNum(data.reconciledProfit) &&
+        data.isDemo is bool &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAppSettings(data) {
+      return data.keys().hasAll([
+          'ownerId', 'businessName', 'currency', 'dateFormat',
+          'defaultDashboardView', 'inventorySafetyBuffer',
+          'defaultAmazonFeePct', 'defaultFlipkartFeePct',
+          'defaultPackagingCost', 'defaultShippingCost', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'businessName', 'businessLogoUrl', 'adminName', 'adminEmail',
+          'currency', 'dateFormat', 'defaultDashboardView', 'inventorySafetyBuffer',
+          'defaultAmazonFeePct', 'defaultFlipkartFeePct', 'defaultPackagingCost',
+          'defaultShippingCost', 'defaultReturnLossRate', 'gstRateDefault',
+          'tcsRateDefault', 'tdsRateDefault', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isStr(data.businessName, 1, 160) &&
+        isOptStr(data, 'businessLogoUrl', 1000) &&
+        isOptStr(data, 'adminName', 120) &&
+        isOptStr(data, 'adminEmail', 254) &&
+        isStr(data.currency, 1, 10) &&
+        isStr(data.dateFormat, 1, 30) &&
+        data.defaultDashboardView in ['Combined', 'Amazon', 'Flipkart'] &&
+        isNum(data.inventorySafetyBuffer) && data.inventorySafetyBuffer >= 0 &&
+        isNum(data.defaultAmazonFeePct) && data.defaultAmazonFeePct >= 0 && data.defaultAmazonFeePct <= 100 &&
+        isNum(data.defaultFlipkartFeePct) && data.defaultFlipkartFeePct >= 0 && data.defaultFlipkartFeePct <= 100 &&
+        isNum(data.defaultPackagingCost) && data.defaultPackagingCost >= 0 &&
+        isNum(data.defaultShippingCost) && data.defaultShippingCost >= 0 &&
+        isOptNum(data, 'defaultReturnLossRate') &&
+        isOptNum(data, 'gstRateDefault') &&
+        isOptNum(data, 'tcsRateDefault') &&
+        isOptNum(data, 'tdsRateDefault') &&
+        data.updatedAt is timestamp;
+    }
+
+    // 4. Collection Match Blocks
+
+    match /admins/{adminId} {
+      allow get: if isVerifiedUser() && isValidId(adminId) && request.auth.uid == adminId;
+      allow list: if false;
+      allow create: if isBootstrappedAdmin() && isValidId(adminId) &&
+        request.auth.uid == adminId &&
+        isValidAdmin(incoming()) &&
+        incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId && isAdmin();
+      allow list: if false;
+      allow create: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId &&
+        isValidUserProfile(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId &&
+        isValidUserProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'businessName', 'email', 'updatedAt']) &&
+        isAdmin();
+      allow delete: if false;
+    }
+
+    match /products/{productId} {
+      allow get: if isVerifiedUser() && isValidId(productId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(productId) &&
+        isValidProduct(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(productId) &&
+        isValidProduct(incoming()) &&
+        isImmutableOwnerAndCreated() &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'sku', 'asin', 'fsn', 'category', 'purchasePrice', 'mrp',
+          'amazonPrice', 'flipkartPrice', 'gstRate', 'openingStock',
+          'reorderLevel', 'imageUrl', 'updatedAt'
+        ]) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(productId) && isOwnerResource() && isAdmin();
+    }
+
+    match /marketplaceListings/{listingId} {
+      allow get: if isVerifiedUser() && isValidId(listingId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(listingId) &&
+        isValidMarketplaceListing(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin() &&
+        existsAfter(/databases/$(database)/documents/products/$(incoming().productId));
+      allow update: if isVerifiedUser() && isValidId(listingId) &&
+        isValidMarketplaceListing(incoming()) &&
+        isImmutableOwnerAndCreated() &&
+        incoming().productId == existing().productId &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['sku', 'externalId', 'listingTitle', 'sellingPrice', 'status', 'updatedAt']) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(listingId) && isOwnerResource() && isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow get: if isVerifiedUser() && isValidId(orderId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(orderId) &&
+        isValidOrder(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(orderId) &&
+        isValidOrder(incoming()) &&
+        isImmutableOwnerAndCreated() &&
+        incoming().orderId == existing().orderId &&
+        incoming().marketplace == existing().marketplace &&
+        incoming().updatedAt == request.time &&
+        (existing().orderStatus != 'Cancelled' || isAdmin()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'orderDate', 'productId', 'productName', 'sku', 'quantity',
+          'sellingPrice', 'totalAmount', 'orderStatus', 'paymentStatus',
+          'customerState', 'marketplaceFee', 'shippingCharge', 'packagingCost',
+          'productCostSnapshot', 'gstAmount', 'tcsAmount', 'tdsAmount',
+          'settlementStatus', 'settledAmount', 'updatedAt'
+        ]) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(orderId) && isOwnerResource() && isAdmin();
+    }
+
+    match /orderItems/{itemId} {
+      allow get: if isVerifiedUser() && isValidId(itemId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(itemId) &&
+        isValidOrderItem(incoming()) &&
+        incoming().createdAt == request.time &&
+        isAdmin() &&
+        existsAfter(/databases/$(database)/documents/orders/$(incoming().orderDocId));
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(itemId) && isOwnerResource() && isAdmin();
+    }
+
+    match /inventory/{inventoryId} {
+      allow get: if isVerifiedUser() && isValidId(inventoryId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(inventoryId) &&
+        isValidInventory(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(inventoryId) &&
+        isValidInventory(incoming()) &&
+        isImmutableOwnerAndCreated() &&
+        incoming().productId == existing().productId &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'productName', 'sku', 'amazonStock', 'flipkartStock', 'warehouseStock',
+          'reservedStock', 'damagedStock', 'totalPhysicalStock', 'availableStock',
+          'reorderLevel', 'updatedAt'
+        ]) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(inventoryId) && isOwnerResource() && isAdmin();
+    }
+
+    match /stockMovements/{movementId} {
+      allow get: if isVerifiedUser() && isValidId(movementId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(movementId) &&
+        isValidStockMovement(incoming()) &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(movementId) && isOwnerResource() && isAdmin();
+    }
+
+    match /returns/{returnId} {
+      allow get: if isVerifiedUser() && isValidId(returnId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(returnId) &&
+        isValidReturnRecord(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(returnId) &&
+        isValidReturnRecord(incoming()) &&
+        isImmutableOwnerAndCreated() &&
+        incoming().returnId == existing().returnId &&
+        incoming().updatedAt == request.time &&
+        (existing().returnStatus != 'Closed' || isAdmin()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'originalOrderId', 'marketplace', 'returnType', 'productId',
+          'productName', 'sku', 'quantity', 'returnDate', 'returnReason',
+          'returnStatus', 'refundAmount', 'returnLoss', 'productCondition',
+          'imageUrl', 'updatedAt'
+        ]) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(returnId) && isOwnerResource() && isAdmin();
+    }
+
+    match /expenses/{expenseId} {
+      allow get: if isVerifiedUser() && isValidId(expenseId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(expenseId) &&
+        isValidExpense(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(expenseId) &&
+        isValidExpense(incoming()) &&
+        isImmutableOwnerAndCreated() &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'expenseDate', 'name', 'category', 'amount', 'marketplace',
+          'paymentMethod', 'notes', 'invoiceUrl', 'invoiceName',
+          'isInventoryPurchase', 'updatedAt'
+        ]) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(expenseId) && isOwnerResource() && isAdmin();
+    }
+
+    match /settlements/{settlementId} {
+      allow get: if isVerifiedUser() && isValidId(settlementId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(settlementId) &&
+        isValidSettlement(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(settlementId) &&
+        isValidSettlement(incoming()) &&
+        isImmutableOwnerAndCreated() &&
+        incoming().settlementId == existing().settlementId &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'periodStart', 'periodEnd', 'grossSales', 'marketplaceFees',
+          'shippingFees', 'refunds', 'tcs', 'tds', 'netPayout', 'status', 'updatedAt'
+        ]) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(settlementId) && isOwnerResource() && isAdmin();
+    }
+
+    match /feeTransactions/{feeId} {
+      allow get: if isVerifiedUser() && isValidId(feeId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(feeId) &&
+        isValidFeeTransaction(incoming()) &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(feeId) && isOwnerResource() && isAdmin();
+    }
+
+    match /costComponents/{costId} {
+      allow get: if isVerifiedUser() && isValidId(costId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(costId) &&
+        isValidCostComponent(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(costId) &&
+        isValidCostComponent(incoming()) &&
+        isImmutableOwnerAndCreated() &&
+        incoming().productId == existing().productId &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'sku', 'purchaseCost', 'packagingCost', 'defaultAmazonFeePct',
+          'defaultFlipkartFeePct', 'defaultShippingCost', 'effectiveFrom', 'updatedAt'
+        ]) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(costId) && isOwnerResource() && isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isVerifiedUser() && isValidId(notificationId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(notificationId) &&
+        isValidNotification(incoming()) &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(notificationId) &&
+        isValidNotification(incoming()) &&
+        isImmutableOwnerAndCreated() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['read']) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(notificationId) && isOwnerResource() && isAdmin();
+    }
+
+    match /integrations/{integrationId} {
+      allow get: if isVerifiedUser() && isValidId(integrationId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(integrationId) &&
+        isValidIntegration(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(integrationId) &&
+        isValidIntegration(incoming()) &&
+        isImmutableOwnerAndCreated() &&
+        incoming().marketplace == existing().marketplace &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'sellerId', 'lastSuccessfulSync', 'nextScheduledSync',
+          'pendingJobs', 'failedJobs', 'syncIntervalMinutes', 'autoSyncEnabled',
+          'lastError', 'updatedAt'
+        ]) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(integrationId) && isOwnerResource() && isAdmin();
+    }
+
+    match /syncJobs/{jobId} {
+      allow get: if isVerifiedUser() && isValidId(jobId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(jobId) &&
+        isValidSyncJob(incoming()) &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(jobId) &&
+        isValidSyncJob(incoming()) &&
+        isImmutableOwnerAndCreated() &&
+        (existing().status != 'Completed' || isAdmin()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'recordsProcessed', 'recordsSkipped', 'errorMessage']) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(jobId) && isOwnerResource() && isAdmin();
+    }
+
+    match /syncLogs/{logId} {
+      allow get: if isVerifiedUser() && isValidId(logId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(logId) &&
+        isValidSyncLog(incoming()) &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(logId) && isOwnerResource() && isAdmin();
+    }
+
+    match /monthlySummaries/{summaryId} {
+      allow get: if isVerifiedUser() && isValidId(summaryId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(summaryId) &&
+        isValidMonthlySummary(incoming()) &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(summaryId) &&
+        isValidMonthlySummary(incoming()) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().yearMonth == existing().yearMonth &&
+        incoming().marketplace == existing().marketplace &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'totalOrders', 'totalSales', 'deliveredOrders', 'pendingOrders',
+          'cancelledOrders', 'totalReturns', 'rtoOrders', 'totalUnitsSold',
+          'totalProductCost', 'marketplaceFees', 'shippingCharges',
+          'advertisingCost', 'otherExpenses', 'estimatedProfit', 'reconciledProfit',
+          'updatedAt'
+        ]) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(summaryId) && isOwnerResource() && isAdmin();
+    }
+
+    match /appSettings/{settingId} {
+      allow get: if isVerifiedUser() && isValidId(settingId) && isOwnerOrNotFound() && isAdmin();
+      allow list: if isOwnerResource();
+      allow create: if isVerifiedUser() && isValidId(settingId) &&
+        isValidAppSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() && isValidId(settingId) &&
+        isValidAppSettings(incoming()) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'businessName', 'businessLogoUrl', 'adminName', 'adminEmail',
+          'currency', 'dateFormat', 'defaultDashboardView', 'inventorySafetyBuffer',
+          'defaultAmazonFeePct', 'defaultFlipkartFeePct', 'defaultPackagingCost',
+          'defaultShippingCost', 'defaultReturnLossRate', 'gstRateDefault',
+          'tcsRateDefault', 'tdsRateDefault', 'updatedAt'
+        ]) &&
+        isOwnerResource() && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(settingId) && isOwnerResource() && isAdmin();
+    }
+  }
+}

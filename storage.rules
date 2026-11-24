@@ -1,0 +1,51 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isAuthorizedAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email is string &&
+          request.auth.token.email.lower() == 'niravmaru502@gmail.com') ||
+        firestore.exists(/databases/ai-studio-54a48159-d81b-4989-804f-381b79080e22/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isAllowedImage() {
+      return request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    function isAllowedDocument() {
+      return request.resource.size <= 10 * 1024 * 1024 &&
+        (request.resource.contentType == 'application/pdf' ||
+         request.resource.contentType.matches('image/(jpeg|png|webp)'));
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    match /products/{userId}/{fileName} {
+      allow read: if isAuthorizedAdmin();
+      allow write: if isAuthorizedAdmin() && request.auth.uid == userId && isAllowedImage();
+    }
+
+    match /invoices/{userId}/{fileName} {
+      allow read: if isAuthorizedAdmin();
+      allow write: if isAuthorizedAdmin() && request.auth.uid == userId && isAllowedDocument();
+    }
+
+    match /returns/{userId}/{fileName} {
+      allow read: if isAuthorizedAdmin();
+      allow write: if isAuthorizedAdmin() && request.auth.uid == userId && isAllowedImage();
+    }
+
+    match /branding/{userId}/{fileName} {
+      allow read: if isAuthorizedAdmin();
+      allow write: if isAuthorizedAdmin() && request.auth.uid == userId && isAllowedImage();
+    }
+  }
+}
